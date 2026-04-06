@@ -251,7 +251,8 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
   }, [
     activeWorkflowId, stage, scriptTitle, scriptContent, characters, scenes, storyboard,
     videoOutput, genTaskId, genStatus, episodes, aiPrompt, aiEpisodes,
-    aiCount, aiVia, selectedTemplateId, imageTemplateId, approvalStatus, approvedAssets, modifyCount
+    aiCount, aiVia, selectedTemplateId, imageTemplateId, approvalStatus, approvedAssets, modifyCount,
+    scriptGenMode, novelText, novelFileName, loading
   ]);
 
   // 加载提示词模版

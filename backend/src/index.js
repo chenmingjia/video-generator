@@ -193,24 +193,7 @@ app.get('/api/storage/workflows', async (req, res) => {
   try {
     const c = await getClient();
     const r = await c.execute('SELECT id, title, state_json as stateJson, created_at as createdAt, updated_at as updatedAt FROM workflows ORDER BY updated_at DESC');
-    
-    const rows = r.rows.map(row => {
-      let data = { ...row };
-      if (data.stateJson) {
-        try {
-          const stateObj = JSON.parse(data.stateJson);
-          if (stateObj.novelText) {
-            delete stateObj.novelText;
-            data.stateJson = JSON.stringify(stateObj);
-          }
-        } catch (err) {
-          // ignore parse error
-        }
-      }
-      return data;
-    });
-
-    res.json({ ok: true, data: rows });
+    res.json({ ok: true, data: r.rows });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e && e.message ? e.message : e) });
   }
@@ -1440,10 +1423,41 @@ app.post('/api/video/approve-image', async (req, res) => {
   const prompt = typeof body.prompt === 'string' ? body.prompt : '镜头推进，角色转身';
   const baseUrl = process.env.VIDEO_API_BASE || 'https://autos.zhijiucity.com:51012';
   const token = process.env.VIDEO_API_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJlYjMxNGVhMC02ZjgxLTRhNzQtOWU1NC1kZGY2MDg1ZjUxMmEiLCJlbWFpbCI6ImNtakBvdXRvcy5jbiIsInJvbGUiOiJWSUVXRVIiLCJvcmdJZCI6ImRjMGZjYjA2LTUwNjgtNGQ0OC1iMDExLTQ5MDA3OWQzY2M2MCIsInR5cGUiOiJhY2Nlc3MiLCJzdmMiOnRydWUsImV4cCI6MTc3Njc5NTg5MSwiaWF0IjoxNzc0MjAzODkxfQ.9geLY-xl27KNIA-2VugfBMRUhTgQcEv-90AR9QwdL8M';
-  const sessionId = process.env.VIDEO_API_SESSION_ID || '64cb2336-f3fe-4ecf-a19d-23d61122fdd0';
 
   if (!imageUrl) {
     return res.status(400).json({ ok: false, error: '缺少 imageUrl' });
+  }
+
+  // 动态创建一个新的会话，避免会话被删除导致“会话不存在”的报错
+  let sessionId = process.env.VIDEO_API_SESSION_ID;
+  try {
+    const url = new URL(baseUrl);
+    const sessionRes = await new Promise((resolve, reject) => {
+      const options = {
+        hostname: url.hostname,
+        port: url.port ? Number(url.port) : 443,
+        path: '/api/playground/sessions',
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      };
+      const sessionReq = https.request(options, (res2) => {
+        let data = '';
+        res2.on('data', chunk => data += chunk);
+        res2.on('end', () => {
+          try { resolve(JSON.parse(data)); } catch(e) { resolve({}); }
+        });
+      });
+      sessionReq.on('error', reject);
+      sessionReq.write(JSON.stringify({ title: '审核图像' }));
+      sessionReq.end();
+    });
+    if (sessionRes && sessionRes.id) {
+      sessionId = sessionRes.id;
+    } else {
+      sessionId = sessionId || 'c3995ff5-d3a6-4ce5-8655-ea7ec8cd1c52';
+    }
+  } catch (e) {
+    sessionId = sessionId || 'c3995ff5-d3a6-4ce5-8655-ea7ec8cd1c52';
   }
 
   try {
