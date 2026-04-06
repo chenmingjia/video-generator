@@ -99,11 +99,21 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
   const switchWorkflow = async (wf) => {
     setActiveWorkflowId(wf.id);
     let state = {};
+    
+    // 开始获取详细数据的 loading 状态
+    setLoading(true);
     try {
-      if (wf.stateJson) state = JSON.parse(wf.stateJson);
+      // 现在的 wf 只包含轻量级信息，需要单独请求详细的 stateJson
+      const detailRes = await api.get(`/storage/workflows/${wf.id}`);
+      const detailWf = detailRes.data?.data || wf;
+      
+      if (detailWf.stateJson) state = JSON.parse(detailWf.stateJson);
     } catch (e) {
-      console.error('解析工作流状态失败:', e);
+      console.error('获取或解析工作流状态失败:', e);
+    } finally {
+      setLoading(false);
     }
+    
     setStage(state.stage || 1);
     setScriptTitle(wf.title || state.scriptTitle || '');
     setScriptContent(state.scriptContent || '');
@@ -1664,9 +1674,9 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
                             <Button size="small" variant="secondary" onClick={() => { setEpisodeEditing(ep); setEpisodeEditorOpen(true); }} disabled={!ep.videoUrl && ep.status !== 'failed'}>编辑</Button>
                             <Button size="small" disabled={!ep.videoUrl}>导出</Button>
                           </div>
-                          {ep.status === 'failed' && (
+                          {(ep.status === 'failed' || ep.status === 'polling' || ep.status === 'running') && (
                             <div className="mt-2 flex flex-col gap-2">
-                              {ep.error && (
+                              {ep.status === 'failed' && ep.error && (
                                 <div className="text-xs text-destructive bg-destructive/10 p-2 rounded border border-destructive/20">
                                   失败原因：{ep.error}
                                 </div>
@@ -1680,28 +1690,30 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
                                 >
                                   重新生成此片段
                                 </Button>
-                                <Button 
-                                  size="small" 
-                                  variant="outline" 
-                                  onClick={async () => {
-                                    const promptText = `画面描述：${storyboard[epIndex]?.visual || ''}\n提示词：${storyboard[epIndex]?.prompt || ''}`;
-                                    setDetectPromptText(promptText);
-                                    setDetectModalOpen(true);
-                                    setDetecting(true);
-                                    setDetectResult(null);
-                                    try {
-                                      const { data } = await api.post('/video/detect-prompt', { prompt: promptText });
-                                      setDetectResult(data.result);
-                                    } catch (e) {
-                                      setDetectResult({ error: '检测失败，请重试' });
-                                    } finally {
-                                      setDetecting(false);
-                                    }
-                                  }}
-                                  className="flex-1 border-destructive/50 text-destructive hover:bg-destructive/10"
-                                >
-                                  检测违禁词
-                                </Button>
+                                {ep.status === 'failed' && (
+                                  <Button 
+                                    size="small" 
+                                    variant="outline" 
+                                    onClick={async () => {
+                                      const promptText = `画面描述：${storyboard[epIndex]?.visual || ''}\n提示词：${storyboard[epIndex]?.prompt || ''}`;
+                                      setDetectPromptText(promptText);
+                                      setDetectModalOpen(true);
+                                      setDetecting(true);
+                                      setDetectResult(null);
+                                      try {
+                                        const { data } = await api.post('/video/detect-prompt', { prompt: promptText });
+                                        setDetectResult(data.result);
+                                      } catch (e) {
+                                        setDetectResult({ error: '检测失败，请重试' });
+                                      } finally {
+                                        setDetecting(false);
+                                      }
+                                    }}
+                                    className="flex-1 border-destructive/50 text-destructive hover:bg-destructive/10"
+                                  >
+                                    检测违禁词
+                                  </Button>
+                                )}
                               </div>
                             </div>
                           )}
