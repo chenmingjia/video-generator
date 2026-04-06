@@ -100,18 +100,12 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
     setActiveWorkflowId(wf.id);
     let state = {};
     
-    // 开始获取详细数据的 loading 状态
-    setLoading(true);
-    try {
-      // 现在的 wf 只包含轻量级信息，需要单独请求详细的 stateJson
-      const detailRes = await api.get(`/storage/workflows/${wf.id}`);
-      const detailWf = detailRes.data?.data || wf;
-      
-      if (detailWf.stateJson) state = JSON.parse(detailWf.stateJson);
-    } catch (e) {
-      console.error('获取或解析工作流状态失败:', e);
-    } finally {
-      setLoading(false);
+    if (wf.stateJson) {
+      try {
+        state = JSON.parse(wf.stateJson);
+      } catch (e) {
+        console.error('解析工作流状态失败:', e);
+      }
     }
     
     setStage(state.stage || 1);
@@ -232,7 +226,7 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
 
   // 自动保存当前工作流状态
   useEffect(() => {
-    if (!activeWorkflowId) return;
+    if (!activeWorkflowId || loading) return;
     const saveState = async () => {
       const stateToSave = {
         stage, scriptTitle, scriptContent, characters, scenes, storyboard,

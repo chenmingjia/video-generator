@@ -192,23 +192,10 @@ app.post('/api/storage/episodes', async (req, res) => {
 app.get('/api/storage/workflows', async (req, res) => {
   try {
     const c = await getClient();
-    const r = await c.execute('SELECT id, title, created_at as createdAt, updated_at as updatedAt FROM workflows ORDER BY updated_at DESC');
-    res.json({ ok: true, data: r.rows });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e && e.message ? e.message : e) });
-  }
-});
-
-app.get('/api/storage/workflows/:id', async (req, res) => {
-  const id = Number(req.params.id);
-  try {
-    const c = await getClient();
-    const r = await c.execute({
-      sql: 'SELECT id, title, state_json as stateJson, created_at as createdAt, updated_at as updatedAt FROM workflows WHERE id = ?',
-      args: [id]
-    });
-    if (r.rows && r.rows.length > 0) {
-      let data = r.rows[0];
+    const r = await c.execute('SELECT id, title, state_json as stateJson, created_at as createdAt, updated_at as updatedAt FROM workflows ORDER BY updated_at DESC');
+    
+    const rows = r.rows.map(row => {
+      let data = { ...row };
       if (data.stateJson) {
         try {
           const stateObj = JSON.parse(data.stateJson);
@@ -220,10 +207,10 @@ app.get('/api/storage/workflows/:id', async (req, res) => {
           // ignore parse error
         }
       }
-      res.json({ ok: true, data });
-    } else {
-      res.status(404).json({ ok: false, error: '工作流不存在' });
-    }
+      return data;
+    });
+
+    res.json({ ok: true, data: rows });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e && e.message ? e.message : e) });
   }
