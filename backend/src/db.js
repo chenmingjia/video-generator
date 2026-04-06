@@ -74,6 +74,20 @@ async function ensureSchema(client) {
       updated_at INTEGER DEFAULT (strftime('%s','now'))
     );
   `);
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS generated_videos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id TEXT NOT NULL,
+      session_id TEXT,
+      prompt TEXT,
+      cover_image_url TEXT,
+      video_url TEXT,
+      status TEXT DEFAULT 'polling',
+      error TEXT,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      updated_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+  `);
 }
 
 module.exports = { getClient };

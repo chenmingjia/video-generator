@@ -23,7 +23,6 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(initialVideoPlan || null);
-  const [useMock, setUseMock] = useState(true);
 
   // 各阶段数据
   const [characters, setCharacters] = useState([]);
@@ -36,7 +35,6 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorType, setEditorType] = useState('character');
   const [editorItem, setEditorItem] = useState(null);
-  const [useVideoMock, setUseVideoMock] = useState(true);
   const [episodes, setEpisodes] = useState([]);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
@@ -48,6 +46,9 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
   const [aiEpisodes, setAiEpisodes] = useState([]);
   const [aiCount, setAiCount] = useState(5);
   const [aiVia, setAiVia] = useState('');
+  const [scriptGenMode, setScriptGenMode] = useState('prompt'); // 'prompt' | 'novel'
+  const [novelText, setNovelText] = useState('');
+  const [novelFileName, setNovelFileName] = useState('');
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [imageTemplateId, setImageTemplateId] = useState('');
@@ -118,6 +119,9 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
     setEpisodes([...initialEpisodes]);
     
     setAiPrompt(state.aiPrompt || '');
+    setNovelText(state.novelText || '');
+    setNovelFileName(state.novelFileName || '');
+    setScriptGenMode(state.scriptGenMode || 'prompt');
     setAiEpisodes(state.aiEpisodes || []);
     setAiCount(state.aiCount || 5);
     setAiVia(state.aiVia || '');
@@ -222,8 +226,10 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
     const saveState = async () => {
       const stateToSave = {
         stage, scriptTitle, scriptContent, characters, scenes, storyboard,
-        videoOutput, genTaskId, genStatus, episodes, aiPrompt, aiEpisodes,
-        aiCount, aiVia, selectedTemplateId, imageTemplateId, approvalStatus, approvedAssets, modifyCount
+        videoOutput, genTaskId, genStatus, episodes,
+        aiPrompt, aiEpisodes, aiCount, aiVia, selectedTemplateId, imageTemplateId,
+        approvalStatus, approvedAssets, modifyCount,
+        scriptGenMode, novelText, novelFileName
       };
       try {
         await api.put(`/storage/workflows/${activeWorkflowId}`, {
@@ -386,35 +392,6 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
     setLoading(true);
     const currentWfId = activeWorkflowIdRef.current;
     try {
-      if (useMock) {
-        const mockCharacters = [
-          { id: 1, name: '沈念冬', description: '现代都市女主', imageUrl: 'https://picsum.photos/seed/char1/512/768' },
-          { id: 2, name: '沈母', description: '优雅知性', imageUrl: 'https://picsum.photos/seed/char2/512/768' },
-          { id: 3, name: '顾东晨', description: '职场精英', imageUrl: 'https://picsum.photos/seed/char3/512/768' },
-          { id: 4, name: '沈晓曦', description: '温柔邻家', imageUrl: 'https://picsum.photos/seed/char4/512/768' },
-          { id: 5, name: '沈卫', description: '严肃长辈', imageUrl: 'https://picsum.photos/seed/char5/512/768' },
-          { id: 6, name: '贺以恒', description: '绅士形象', imageUrl: 'https://picsum.photos/seed/char6/512/768' },
-          { id: 7, name: '宋苒', description: '干练气质', imageUrl: 'https://picsum.photos/seed/char7/512/768' },
-          { id: 8, name: '林峥', description: '沉稳可靠', imageUrl: 'https://picsum.photos/seed/char8/512/768' },
-        ];
-        const baseScenes = [
-          { id: 1, location: '街角便利店', emotion: '好奇', imageUrl: 'https://picsum.photos/seed/scene1/1280/720' },
-          { id: 2, location: '雨夜巷口', emotion: '紧张', imageUrl: 'https://picsum.photos/seed/scene2/1280/720' },
-          { id: 3, location: '屋顶天台', emotion: '释怀', imageUrl: 'https://picsum.photos/seed/scene3/1280/720' },
-          { id: 4, location: '清晨街道', emotion: '反转', imageUrl: 'https://picsum.photos/seed/scene4/1280/720' },
-          { id: 5, location: '地铁车厢', emotion: '压抑', imageUrl: 'https://picsum.photos/seed/scene5/1280/720' },
-          { id: 6, location: '落地窗办公室', emotion: '冷静', imageUrl: 'https://picsum.photos/seed/scene6/1280/720' },
-        ].map(s => ({ ...s, description: `场景：${s.location}，情绪：${s.emotion}` }));
-        setCharacters(mockCharacters);
-        setScenes(baseScenes);
-        try {
-          await Promise.all([
-            ...mockCharacters.map((c) => api.post('/storage/characters', { name: c.name, description: c.description, imageUrl: c.imageUrl, prompt: c.prompt || '' })),
-            ...baseScenes.map((s) => api.post('/storage/scenes', { location: s.location, emotion: s.emotion, imageUrl: s.imageUrl, prompt: s.prompt || '' }))
-          ]);
-        } catch { }
-        return;
-      }
       const payload = {
         scriptTitle: scriptTitle.trim() ? scriptTitle.trim() : undefined,
         scriptContent: scriptContent.trim() || undefined,
@@ -527,43 +504,6 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
     setLoading(true);
     const currentWfId = activeWorkflowIdRef.current;
     try {
-      if (useVideoMock) {
-        const title = (scriptTitle && scriptTitle.trim())
-          ? scriptTitle.trim()
-          : (scriptContent && scriptContent.trim()
-            ? (scriptContent.trim().split(/\r?\n/)[0] || '未命名剧本')
-            : '未命名剧本');
-        const mock = {
-          id: String(Date.now()),
-          title: `${title} - 生成结果`,
-          status: 'completed',
-          mediaUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
-          thumbnailUrl: `https://picsum.photos/seed/video-${Date.now()}/640/360`
-        };
-        setGenStatus('completed');
-        setVideoOutput(mock);
-        const count = Math.max(1, Math.min(8, storyboard?.length || 5));
-        const ep = Array.from({ length: count }).map((_, i) => {
-          const sb = storyboard[i];
-          const epTitle = sb?.visual
-            ? sb.visual.replace(/\s+/g, ' ').trim()
-            : `第 ${i + 1} 幕`;
-          const dur = 60 + Math.floor(Math.random() * 40);
-          return {
-            id: `${mock.id}-ep-${i + 1}`,
-            idx: i + 1,
-            title: `第 ${i + 1} 集：${epTitle.slice(0, 18)}`,
-            duration: dur,
-            people: 3 + (i % 2),
-            shots: 8 + (i * 2),
-            scenes: 3 + (i % 3),
-            thumb: `https://picsum.photos/seed/episode-${i + 1}/360/640`,
-            videoUrl: mock.mediaUrl
-          };
-        });
-        setEpisodes(ep);
-        return;
-      }
       const payload = {
         scriptTitle: scriptTitle.trim() ? scriptTitle.trim() : undefined,
         storyboard: storyboard,
@@ -1071,29 +1011,83 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
                   <div className="text-xl font-semibold">短剧 Agent</div>
                   <div className="text-sm text-muted-foreground">一键生成 15s 分集脚本</div>
                 </div>
-                <div className="rounded-2xl border border-border bg-card p-4">
+                
+                {/* 模式切换 Tab */}
+                <div className="flex border-b border-border">
+                  <button
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${scriptGenMode === 'prompt' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                    onClick={() => setScriptGenMode('prompt')}
+                  >
+                    需求生成
+                  </button>
+                  <button
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${scriptGenMode === 'novel' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                    onClick={() => setScriptGenMode('novel')}
+                  >
+                    小说拆解
+                  </button>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-card p-4 mt-4">
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div className="md:col-span-3">
-                      <textarea
-                        value={aiPrompt}
-                        onChange={(e) => setAiPrompt(e.target.value)}
-                        placeholder="在此输入你的创作要求：人物设定、故事线索、风格基调、目标受众、结局倾向等"
-                        className="w-full h-32 rounded-xl border border-border bg-background px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
+                      {scriptGenMode === 'prompt' ? (
+                        <textarea
+                          value={aiPrompt}
+                          onChange={(e) => setAiPrompt(e.target.value)}
+                          placeholder="在此输入你的创作要求：人物设定、故事线索、风格基调、目标受众、结局倾向等"
+                          className="w-full h-32 rounded-xl border border-border bg-background px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                        />
+                      ) : (
+                        <div className="w-full h-32 rounded-xl border-2 border-dashed border-border bg-background/50 hover:bg-background transition-colors flex flex-col items-center justify-center text-sm relative group cursor-pointer overflow-hidden">
+                          <input 
+                            type="file" 
+                            accept=".txt"
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                            onChange={(e) => {
+                              const file = e.target.files[0];
+                              if (!file) return;
+                              setNovelFileName(file.name);
+                              const reader = new FileReader();
+                              reader.onload = (event) => {
+                                setNovelText(event.target.result || '');
+                              };
+                              reader.readAsText(file);
+                            }}
+                          />
+                          <div className="flex flex-col items-center justify-center gap-2 pointer-events-none p-4 text-center">
+                            {novelText ? (
+                              <>
+                                <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                <span className="text-foreground font-medium truncate max-w-full px-2">{novelFileName || '已加载文本'}</span>
+                                <span className="text-xs text-muted-foreground">{novelText.length} 字符 • 点击重新上传</span>
+                              </>
+                            ) : (
+                              <>
+                                <svg className="w-8 h-8 text-muted-foreground group-hover:text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                                <span className="text-muted-foreground group-hover:text-foreground transition-colors">点击上传或拖拽 TXT 小说文件到此处</span>
+                                <span className="text-xs text-muted-foreground/70">支持自动处理超长文本</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div className="md:col-span-1">
                       <div className="space-y-4">
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">提示词模版</label>
-                          <select
-                            value={selectedTemplateId}
-                            onChange={(e) => setSelectedTemplateId(e.target.value)}
-                            className="w-full h-10 rounded-xl border border-border bg-background px-3 text-sm"
-                          >
-                            {templates.filter(t => !t.sceneType || t.sceneType === 'script').length === 0 && <option value="">暂无模版</option>}
-                            {templates.filter(t => !t.sceneType || t.sceneType === 'script').map(tpl => <option key={tpl.id} value={tpl.id}>{tpl.name}</option>)}
-                          </select>
-                        </div>
+                        {scriptGenMode === 'prompt' && (
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">提示词模版</label>
+                            <select
+                              value={selectedTemplateId}
+                              onChange={(e) => setSelectedTemplateId(e.target.value)}
+                              className="w-full h-10 rounded-xl border border-border bg-background px-3 text-sm"
+                            >
+                              {templates.filter(t => !t.sceneType || t.sceneType === 'script').length === 0 && <option value="">暂无模版</option>}
+                              {templates.filter(t => !t.sceneType || t.sceneType === 'script').map(tpl => <option key={tpl.id} value={tpl.id}>{tpl.name}</option>)}
+                            </select>
+                          </div>
+                        )}
                         <div className="space-y-2">
                           <label className="text-sm font-medium">集数</label>
                           <select
@@ -1113,15 +1107,21 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
                           setAiEpisodes([]); // 清空旧的剧本摘要数据
                           const currentWfId = activeWorkflowIdRef.current;
                           try {
-                            let finalPrompt = aiPrompt;
-                            if (selectedTemplateId) {
+                            let finalPrompt = scriptGenMode === 'novel' ? novelText : aiPrompt;
+                            if (scriptGenMode === 'novel') {
+                              finalPrompt = novelText;
+                            } else if (selectedTemplateId) {
                               const tpl = templates.find(t => t.id.toString() === selectedTemplateId);
                               if (tpl && tpl.userPrompt) {
                                 finalPrompt = `【系统设定】\n${tpl.userPrompt}\n\n【用户要求】\n${aiPrompt}`;
                               }
                             }
                             
-                            const { data } = await api.post('/video/ai-episodes', { prompt: finalPrompt, count: aiCount });
+                            const { data } = await api.post('/video/ai-episodes', { 
+                              prompt: finalPrompt, 
+                              count: aiCount,
+                              isNovelMode: scriptGenMode === 'novel'
+                            });
                             if (currentWfId !== activeWorkflowIdRef.current) return;
                             const eps = Array.isArray(data?.episodes) ? data.episodes : [];
                               setAiEpisodes(eps);
@@ -1131,8 +1131,9 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
                               if (eps.length > 0) {
                                 const combinedScript = eps.map((ep, idx) => `第${idx + 1}集：${ep.title}\n${ep.script}`).join('\n\n');
                                 setScriptContent(combinedScript);
-                                if (!scriptTitle && aiPrompt) {
-                                  setScriptTitle(aiPrompt.slice(0, 20));
+                                const inputForTitle = scriptGenMode === 'novel' ? novelText : aiPrompt;
+                                if (!scriptTitle && inputForTitle) {
+                                  setScriptTitle(inputForTitle.slice(0, 20));
                                 }
                               }
                             } catch (e) {
@@ -1141,7 +1142,7 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
                               setLoading(false);
                             }
                           }}
-                          disabled={loading || !aiPrompt.trim()}
+                          disabled={loading || (scriptGenMode === 'novel' ? !novelText.trim() : !aiPrompt.trim())}
                           className="w-full"
                         >
                           {loading ? '生成中…' : '开始创作'}
@@ -1214,16 +1215,6 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
                 <div className="flex items-center gap-3">
                   <span className="px-2 py-1 rounded-full bg-muted text-xs">备选角色 {characters.length}</span>
                   <span className="px-2 py-1 rounded-full bg-muted text-xs">生成场景 {scenes.length}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    id="mockSwitch"
-                    type="checkbox"
-                    checked={useMock}
-                    onChange={(e) => setUseMock(e.target.checked)}
-                    className="h-4 w-4"
-                  />
-                  <label htmlFor="mockSwitch" className="text-sm text-muted-foreground">使用 Mock 数据</label>
                 </div>
                 <Button
                   onClick={handleGenerateImages}
@@ -1546,18 +1537,6 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
 
             <div className="space-y-4">
               <div className="flex flex-wrap gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <input
-                      id="videoMockSwitch"
-                      type="checkbox"
-                      checked={useVideoMock}
-                      onChange={(e) => setUseVideoMock(e.target.checked)}
-                      className="h-4 w-4"
-                    />
-                    <label htmlFor="videoMockSwitch" className="text-sm text-muted-foreground">使用 Mock 视频</label>
-                  </div>
-                </div>
                 <Button
                   onClick={handleGenerateVideo}
                   disabled={loading}
@@ -1772,35 +1751,22 @@ export default function VideoTab({ script, initialVideoPlan, globalAssets = [], 
               return nextStatus;
             });
 
-            if (useMock) {
-              const ts = Date.now();
-              if (editorType === 'character') {
-                const url = `https://picsum.photos/seed/char-${next.id}-${ts}/512/768`;
-                setCharacters((prev) => prev.map((c) => (c.id === next.id ? { ...c, imageUrl: url, prompt: next.prompt } : c)));
-                return { imageUrl: url };
-              } else {
-                const url = `https://picsum.photos/seed/scene-${next.id}-${ts}/1280/720`;
-                setScenes((prev) => prev.map((s) => (s.id === next.id ? { ...s, imageUrl: url, prompt: next.prompt } : s)));
-                return { imageUrl: url };
-              }
-            } else {
-              try {
-                const payload = { prompt: next.prompt };
-                const { data } = await api.post('/video/regenerate-image', payload);
-                if (data && data.imageUrl) {
-                  const url = data.imageUrl;
-                  if (editorType === 'character') {
-                    setCharacters((prev) => prev.map((c) => (c.id === next.id ? { ...c, imageUrl: url, prompt: next.prompt } : c)));
-                  } else {
-                    setScenes((prev) => prev.map((s) => (s.id === next.id ? { ...s, imageUrl: url, prompt: next.prompt } : s)));
-                  }
-                  return { imageUrl: url };
+            try {
+              const payload = { prompt: next.prompt };
+              const { data } = await api.post('/video/regenerate-image', payload);
+              if (data && data.imageUrl) {
+                const url = data.imageUrl;
+                if (editorType === 'character') {
+                  setCharacters((prev) => prev.map((c) => (c.id === next.id ? { ...c, imageUrl: url, prompt: next.prompt } : c)));
+                } else {
+                  setScenes((prev) => prev.map((s) => (s.id === next.id ? { ...s, imageUrl: url, prompt: next.prompt } : s)));
                 }
-              } catch (e) {
-                console.error('重新生成图片失败:', e);
+                return { imageUrl: url };
               }
-              return null;
+            } catch (e) {
+              console.error('重新生成图片失败:', e);
             }
+            return null;
           }}
         />
         <Modal

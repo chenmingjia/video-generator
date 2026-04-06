@@ -14,7 +14,8 @@ if (!process.env.ARK_API_KEY) {
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'e-video-generator-backend' });
@@ -241,78 +242,152 @@ app.delete('/api/storage/workflows/:id', async (req, res) => {
   }
 });
 
-app.post('/api/video/ai-episodes', (req, res) => {
+app.post('/api/video/ai-episodes', async (req, res) => {
   const body = req.body || {};
-  const promptText = typeof body.prompt === 'string' ? body.prompt : '';
+  const isNovelMode = !!body.isNovelMode;
+  let promptText = typeof body.prompt === 'string' ? body.prompt : '';
   const count = Math.min(8, Math.max(1, Number(body.count || 5)));
-  const seed = String(Date.now());
   const arkApiKey = process.env.ARK_API_KEY || '';
   if (!arkApiKey) {
     res.status(400).json({ ok: false, error: 'ARK_API_KEY 未配置' });
     return;
   }
-  const sys = '你是专业的短视频分集剧本编剧。严格输出 JSON：{"episodes":[{"title":"","durationSec":15,"summary":"","script":""}]}。每集 15 秒。请注意：script 字段必须非常详细，至少包含 10 句【画面】描写和对应的【对白】，以充分填满 15 秒的时长。不要使用简略的占位符。language: zh。';
-  const data = JSON.stringify({
-    model: 'doubao-seed-2-0-pro-260215',
-    input: [
-      { role: 'system', content: [{ type: 'input_text', text: sys }] },
-      { role: 'user', content: [{ type: 'input_text', text: `${promptText}\n请生成 ${count} 集，每集 15 秒的短剧分集：标题、简要摘要、详细剧本文段。\n要求 script 字段必须详细描述场景动作和台词，字数尽量多一些。\n随机性种子: ${seed}` }] }
-    ]
-  });
-  const options = {
-    hostname: 'ark.cn-beijing.volces.com',
-    port: 443,
-    path: '/api/v3/responses',
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${arkApiKey}`,
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(data)
-    }
-  };
-  const req2 = https.request(options, (res2) => {
-    let responseData = '';
-    res2.on('data', (chunk) => { responseData += chunk; });
-    res2.on('end', () => {
-      try {
-        const parsed = JSON.parse(responseData);
-        const content = parsed?.output?.[1]?.content?.[0]?.text || '';
-        let obj = null;
-        try { obj = JSON.parse(content); } catch (_) {
-          const start = content.indexOf('{');
-          const end = content.lastIndexOf('}');
-          if (start >= 0 && end > start) {
-            const sliced = content.slice(start, end + 1);
-            try { obj = JSON.parse(sliced); } catch (_) {}
+
+  const callLLM = (sys, userText) => {
+    return new Promise((resolve, reject) => {
+      const data = JSON.stringify({
+        model: 'doubao-seed-2-0-pro-260215',
+        input: [
+          { role: 'system', content: [{ type: 'input_text', text: sys }] },
+          { role: 'user', content: [{ type: 'input_text', text: userText }] }
+        ]
+      });
+      const options = {
+        hostname: 'ark.cn-beijing.volces.com',
+        port: 443,
+        path: '/api/v3/responses',
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${arkApiKey}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(data)
+        }
+      };
+      const req2 = https.request(options, (res2) => {
+        let responseData = '';
+        res2.on('data', (chunk) => { responseData += chunk; });
+        res2.on('end', () => {
+          try {
+            const parsed = JSON.parse(responseData);
+            const content = parsed?.output?.[1]?.content?.[0]?.text || '';
+            let obj = null;
+            try { obj = JSON.parse(content); } catch (_) {
+              const start = content.indexOf('{');
+              const end = content.lastIndexOf('}');
+              if (start >= 0 && end > start) {
+                const sliced = content.slice(start, end + 1);
+                try { obj = JSON.parse(sliced); } catch (_) {}
+              }
+            }
+            if (!obj || !Array.isArray(obj.episodes)) {
+              resolve({ episodes: [] });
+              return;
+            }
+            resolve(obj);
+          } catch (e) {
+            reject(new Error('解析外部接口响应失败'));
           }
-        }
-        if (!obj || !Array.isArray(obj.episodes)) {
-          const fallback = Array.from({ length: count }).map((_, i) => ({
-            title: `${promptText && promptText.trim() ? promptText.trim() : '短剧'} · 第 ${i + 1} 集`,
-            durationSec: 15,
-            summary: `围绕“${promptText}”主题，15 秒内呈现冲突与反转的片段摘要。`,
-            script: `【画面】快节奏推进“${promptText}”主题的动作与对白。\n【对白】（简短有力、贴合主题）`
-          }));
-          res.json({ ok: true, episodes: fallback, via: 'fallback', seed });
-          return;
-        }
-        const episodes = obj.episodes.map((e, i) => ({
-          title: e.title || `第 ${i + 1} 集`,
-          durationSec: Number(e.durationSec || 15),
-          summary: e.summary || '',
-          script: e.script || ''
-        }));
-        res.json({ ok: true, episodes, via: 'ark', seed });
-      } catch (e) {
-        res.status(500).json({ ok: false, error: '解析外部接口响应失败' });
-      }
+        });
+      });
+      req2.on('error', (err) => {
+        reject(err);
+      });
+      req2.write(data);
+      req2.end();
     });
-  });
-  req2.on('error', (err) => {
-    res.status(502).json({ ok: false, error: String(err && err.message ? err.message : err) });
-  });
-  req2.write(data);
-  req2.end();
+  };
+
+  try {
+    let allEpisodes = [];
+    const seed = String(Date.now());
+
+    if (isNovelMode) {
+      const MAX_TEXT_LENGTH = 80000;
+      const MAX_CHUNKS = 10;
+      let currentIndex = 0;
+      let chunksProcessed = 0;
+      
+      while (currentIndex < promptText.length && allEpisodes.length < count && chunksProcessed < MAX_CHUNKS) {
+        let chunk = promptText.slice(currentIndex, currentIndex + MAX_TEXT_LENGTH);
+        currentIndex += MAX_TEXT_LENGTH;
+        chunksProcessed += 1;
+        
+        if (currentIndex < promptText.length && chunksProcessed < MAX_CHUNKS) {
+          chunk += "\n\n[文本已截断，请基于已有内容进行划分]";
+        }
+
+        const remainingCount = count - allEpisodes.length;
+        const sys = '你是一名专业的剧本编剧和分集策划师。请严格输出 JSON 格式。';
+        const userText = `请将以下小说/剧本文本按叙事节奏划分为约 ${remainingCount} 集的短剧剧本。
+
+划分原则：
+1. 每集应有完整的叙事弧（开端/发展/高潮或悬念）
+2. 在自然的情节转折点或场景切换处分集
+3. 各集内容量大致均衡，但优先保证叙事完整性
+4. 实际集数可以在建议集数 ±2 范围内浮动
+5. 请输出每一集的 title（标题）、summary（简要摘要）、script（详细剧本文段，包含极其丰富的画面细节、人物动作、神态描写和对白）、durationSec（固定为15）
+6. 【极度重要】：为了保证拍摄素材充足，每一集的 script 字段字数必须不少于 500 字！绝对不能使用简略的占位符或一笔带过，请极尽详细地扩写场景和台词！
+
+输出纯 JSON（不要 markdown 代码块）：{"episodes":[{"title":"","durationSec":15,"summary":"","script":""}]}
+
+原文如下：
+${chunk}
+
+随机性种子: ${seed}`;
+
+        const result = await callLLM(sys, userText);
+        if (result && result.episodes) {
+          allEpisodes = allEpisodes.concat(result.episodes);
+        }
+      }
+      
+      // 如果生成的集数超过了目标，截断
+      if (allEpisodes.length > count) {
+        allEpisodes = allEpisodes.slice(0, count);
+      }
+      
+    } else {
+      const sys = '你是专业的短视频分集剧本编剧。严格输出 JSON：{"episodes":[{"title":"","durationSec":15,"summary":"","script":""}]}。每集 15 秒。请注意：script 字段必须极其详细，【每集字数不少于 500 字】，包含丰富的画面细节、神态动作描写和完整的对白。不要使用简略的占位符或一笔带过。language: zh。';
+      const userText = `${promptText}\n请生成 ${count} 集，每集 15 秒的短剧分集：标题、简要摘要、详细剧本文段。\n【极度重要】：要求 script 字段必须极其详细，极尽描述场景动作和台词，每集 script 的字数绝对不能少于 500 字！\n随机性种子: ${seed}`;
+      const result = await callLLM(sys, userText);
+      if (result && result.episodes) {
+        allEpisodes = result.episodes;
+      }
+    }
+
+    if (allEpisodes.length === 0) {
+      const fallback = Array.from({ length: count }).map((_, i) => ({
+        title: `${promptText && promptText.trim() ? promptText.trim().slice(0, 20) : '短剧'} · 第 ${i + 1} 集`,
+        durationSec: 15,
+        summary: `围绕“${promptText ? promptText.slice(0, 10) : ''}”主题，15 秒内呈现冲突与反转的片段摘要。`,
+        script: `【画面】快节奏推进“${promptText ? promptText.slice(0, 10) : ''}”主题的动作与对白。\n【对白】（简短有力、贴合主题）`
+      }));
+      res.json({ ok: true, episodes: fallback, via: 'fallback', seed });
+      return;
+    }
+
+    const episodes = allEpisodes.map((e, i) => ({
+      title: e.title || `第 ${i + 1} 集`,
+      durationSec: Number(e.durationSec || 15),
+      summary: e.summary || '',
+      script: e.script || ''
+    }));
+    
+    res.json({ ok: true, episodes, via: 'ark', seed });
+
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err && err.message ? err.message : err) });
+  }
 });
 function pickTopic(body) {
   const topic = body?.topic;
